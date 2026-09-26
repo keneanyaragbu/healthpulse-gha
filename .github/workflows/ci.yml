@@ -1,0 +1,71 @@
+name: HealthPulse Backend CI
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+  pull_request:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+# ---- PERMISSIONS: required for OIDC ----
+permissions:
+  id-token: write        # lets the workflow request a GitHub OIDC token (for AWS auth)
+  contents: read         # read the repo (we'll change to write later for the manifest commit)
+
+env:
+  IMAGE_NAME: healthpulse-backend
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 588738574057.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: healthpulse-backend
+
+jobs:
+  build:
+    name: Build, Scan, Sign, Push
+    runs-on: ubuntu-latest
+
+    steps:
+      # ---- Stage 1: Checkout ----
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ---- Stage 2: Node setup + tests ----
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: app/backend
+        run: npm ci
+
+      - name: Run tests
+        working-directory: app/backend
+        run: npm test
+
+      # ---- Stage 4: Authenticate to AWS via OIDC ----
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::588738574057:role/github-actions-healthpulse-gha
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ---- Stage 5: Log in to ECR ----
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ---- Stage 3+5: Build image, tag with SHA, push to ECR ----
+      - name: Build and push image
+        working-directory: app/backend
+        run: |
+          IMAGE_URI=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          docker build -t $IMAGE_URI .
+          docker push $IMAGE_URI
+          echo "Pushed: $IMAGE_URI"
+
+          # Capture the DIGEST (sha256) — the true immutable identity for cosign + deploy
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $IMAGE_URI | cut -d'@' -f2)
+          echo "IMAGE_DIGEST=$DIGEST" >> $GITHUB_ENV
+          echo "Image digest: $DIGEST"

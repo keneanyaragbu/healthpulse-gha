@@ -1,0 +1,9 @@
+node_modules/
+*.key
+cosign.key
+*.pem
+.terraform/
+*.tfstate
+*.tfstate.backup
+tfplan
+.env
