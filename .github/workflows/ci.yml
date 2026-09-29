@@ -45,12 +45,21 @@ jobs:
         working-directory: app/backend
         run: npm test
 
+        # ---- DEBUG: see the actual OIDC claim values ----
+      - name: Debug OIDC context
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Expected sub: repo:${{ github.repository }}:ref:${{ github.ref }}"
+
       # ---- Stage 4: Authenticate to AWS via OIDC ----
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::588738574057:role/github-actions-healthpulse-gha
           aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       # ---- Stage 5: Log in to ECR ----
       - name: Log in to Amazon ECR
