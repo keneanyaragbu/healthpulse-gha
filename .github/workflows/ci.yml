@@ -78,3 +78,12 @@ jobs:
           format: 'table'
           exit-code: '1'          # code 0=do not fail the build on findings code 1=fail the build on findings
           severity: 'CRITICAL'
+
+      # ---- Stage 7: Snyk dependency scan ----
+      - name: Run Snyk dependency scan
+        uses: snyk/actions/node@master
+        continue-on-error: true       # report, don't block (tune later)
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=app/backend/package.json
