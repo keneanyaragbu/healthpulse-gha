@@ -10,9 +10,8 @@ on:
       - main
   workflow_dispatch:
 
-# ---- PERMISSIONS: required for OIDC ----
+# ---- PERMISSIONS: GITHUB ACTIONS ----
 permissions:
-  id-token: write        # lets the workflow request a GitHub OIDC token (for AWS auth)
   contents: read         # read the repo (we'll change to write later for the manifest commit)
 
 env:
@@ -45,22 +44,13 @@ jobs:
         working-directory: app/backend
         run: npm test
 
-        # ---- DEBUG: see the actual OIDC claim values ----
-      - name: Debug OIDC context
-        run: |
-          echo "Repository: ${{ github.repository }}"
-          echo "Ref: ${{ github.ref }}"
-          echo "Actor: ${{ github.actor }}"
-          echo "Expected sub: repo:${{ github.repository }}:ref:${{ github.ref }}"
-
       # ---- Stage 4: Authenticate to AWS via OIDC ----
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::588738574057:role/gha-ecr-role
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-          audience: sts.amazonaws.com
-          role-skip-session-tagging: true
 
       # ---- Stage 5: Log in to ECR ----
       - name: Log in to Amazon ECR
