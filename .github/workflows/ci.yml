@@ -44,6 +44,15 @@ jobs:
         working-directory: app/backend
         run: npm test
 
+      # ---- Stage 8: SonarCloud code quality scan ----
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: app/backend
+
       # ---- Stage 4: Authenticate to AWS via OIDC ----
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
