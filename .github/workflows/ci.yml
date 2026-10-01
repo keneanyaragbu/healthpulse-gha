@@ -58,6 +58,8 @@ jobs:
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          scanMetadataReportFile: app/backend/.scannerwork/report-task.txt
 
       # ---- 5. Snyk dependency scan (gate on critical) ----
       - name: Run Snyk dependency scan
