@@ -10,9 +10,8 @@ on:
       - main
   workflow_dispatch:
 
-# ---- PERMISSIONS: GITHUB ACTIONS ----
 permissions:
-  contents: read         # read the repo (we'll change to write later for the manifest commit)
+  contents: read
 
 env:
   IMAGE_NAME: healthpulse-backend
@@ -26,11 +25,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ---- Stage 1: Checkout ----
+      # ---- 1. Checkout ----
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ---- Stage 2: Node setup + tests ----
+      # ---- 2. Node setup + unit tests ----
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -40,11 +39,11 @@ jobs:
         working-directory: app/backend
         run: npm ci
 
-      - name: Run tests
+      - name: Run unit tests
         working-directory: app/backend
         run: npm test
 
-      # ---- Stage 8: SonarCloud code quality scan ----
+      # ---- 3. SonarCloud scan ----
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
@@ -53,7 +52,50 @@ jobs:
         with:
           projectBaseDir: app/backend
 
-      # ---- Stage 4: Authenticate to AWS via OIDC ----
+      # ---- 4. SonarCloud Quality Gate (the GATE, not just the scan) ----
+      - name: SonarCloud Quality Gate check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # ---- 5. Snyk dependency scan (gate on critical) ----
+      - name: Run Snyk dependency scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=critical --file=app/backend/package.json
+
+      # ---- 6. Build image (local, SHA-tagged — NOT pushed yet) ----
+      - name: Build Docker image
+        working-directory: app/backend
+        run: |
+          IMAGE_URI=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          docker build -t $IMAGE_URI .
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      # ---- 7. Trivy scan the LOCAL image (BEFORE push — gate on critical) ----
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_URI }}
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+
+      # ---- 8. Smoke test the LOCAL image ----
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke -p 3000:3000 ${{ env.IMAGE_URI }}
+          sleep 5
+          curl --fail http://localhost:3000/api/health || (docker logs smoke && exit 1)
+          docker rm -f smoke
+          echo "Smoke test passed"
+
+      # ======== GATE PASSED — only now do we touch the registry ========
+
+      # ---- 9. AWS auth ----
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -61,38 +103,26 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # ---- Stage 5: Log in to ECR ----
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ---- Stage 3+5: Build image, tag with SHA, push to ECR ----
-      - name: Build and push image
-        working-directory: app/backend
+      # ---- 10. Install cosign ----
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # ---- 11. Push + Sign (combined, as you designed) ----
+      - name: Push to ECR and sign with cosign
         run: |
-          IMAGE_URI=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-          docker build -t $IMAGE_URI .
-          docker push $IMAGE_URI
-          echo "Pushed: $IMAGE_URI"
+          docker push ${{ env.IMAGE_URI }}
 
-          # Capture the DIGEST (sha256) — the true immutable identity for cosign + deploy
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $IMAGE_URI | cut -d'@' -f2)
+          # Capture the digest (sign + deploy by DIGEST, the immutable identity)
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.IMAGE_URI }} | cut -d'@' -f2)
+          IMAGE_DIGEST_URI=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}@$DIGEST
           echo "IMAGE_DIGEST=$DIGEST" >> $GITHUB_ENV
-          echo "Image digest: $DIGEST"
 
-      # ---- Stage 6: Scan the image with Trivy ----
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-          format: 'table'
-          exit-code: '1'          # code 0=do not fail the build on findings code 1=fail the build on findings
-          severity: 'CRITICAL'
-
-      # ---- Stage 7: Snyk dependency scan ----
-      - name: Run Snyk dependency scan
-        uses: snyk/actions/node@master
-        continue-on-error: true       # report, don't block (tune later)
+          # Sign the image by digest (signature stored in ECR)
+          cosign sign --yes --key env://COSIGN_PRIVATE_KEY $IMAGE_DIGEST_URI
+          echo "Pushed and signed: $IMAGE_DIGEST_URI"
         env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=high --file=app/backend/package.json
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
