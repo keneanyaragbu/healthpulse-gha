@@ -8,8 +8,8 @@ resources:
   - ../../base
 
 images:
-  - name: keneanyaragbu/healthpulse-backend
-    newTag: v2-metrics
+  - name: 588738574057.dkr.ecr.us-east-1.amazonaws.com/healthpulse-backend
+    newTag: 9177f596e883610b5582be0a1f7d072deb4d7de0
 
 patches:
   - target:
