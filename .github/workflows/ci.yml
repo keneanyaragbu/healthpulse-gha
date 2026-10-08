@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   IMAGE_NAME: healthpulse-backend
@@ -130,19 +130,20 @@ jobs:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
       
-      # ---- 12. GitOps handoff: update dev overlay image + commit ----
-      - name: Update dev overlay and commit
+      # ---- 12. GitOps handoff: update CONFIG repo's dev overlay ----
+      - name: Update config repo (GitOps handoff)
         run: |
-          cd k8s/overlays/dev
+          # Clone the config repo using the scoped PAT
+          git clone https://x-access-token:${{ secrets.CONFIG_REPO_TOKEN }}@github.com/keneanyaragbu/healthpulse-gha-config.git config-repo
 
-          # Point the image at ECR (was Docker Hub) and set the tag to this build's SHA
+          cd config-repo/k8s/overlays/dev
+
+          # Point image at ECR (was Docker Hub) + set tag to this build's SHA
           sed -i "s|name: keneanyaragbu/healthpulse-backend|name: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}|" kustomization.yaml
           sed -i "s|newTag:.*|newTag: ${{ github.sha }}|" kustomization.yaml
 
-          # Identity for the commit
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           git add kustomization.yaml
-          git commit -m "chore(dev): deploy image ${{ github.sha }} [skip ci]" || echo "No changes to commit"
+          git commit -m "chore(dev): deploy ${{ github.sha }} from healthpulse-gha" || echo "No changes"
           git push
