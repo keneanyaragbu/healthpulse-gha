@@ -8,6 +8,9 @@
     "test": "jest"
   },
   "dependencies": {
+    "@opentelemetry/auto-instrumentations-node": "^0.81.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.223.0",
+    "@opentelemetry/sdk-node": "^0.223.0",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "prom-client": "^15.1.3"

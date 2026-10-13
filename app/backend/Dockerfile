@@ -4,10 +4,12 @@ WORKDIR /app
 
 COPY package*.json ./
 
+COPY instrumentation.js ./
+
 RUN npm ci --omit=dev
 
 COPY server.js ./
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "-r", "./instrumentation.js", "server.js"]
